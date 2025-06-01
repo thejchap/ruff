@@ -380,6 +380,19 @@ frozen_instance = MyFrozenClass(1)
 frozen_instance.x = 2  # error: [invalid-assignment]
 ```
 
+Deleting fields will also generate a diagnostic.
+
+```py
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class MyFrozenClass:
+    x: int = 1
+
+frozen_instance = MyFrozenClass()
+del frozen_instance.x  # TODO: error: [invalid-assignment]
+```
+
 If `__setattr__()` or `__delattr__()` is defined in the class, we should emit a diagnostic.
 
 ```py
@@ -425,6 +438,22 @@ class MyFrozenClass: ...
 
 frozen = MyFrozenClass()
 frozen.x = 2  # error: [unresolved-attribute]
+```
+
+A diagnostic is also emitted if a frozen dataclass is inherited, and an attempt is made to mutate an
+attribute in the child class:
+
+```py
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class MyFrozenClass:
+    x: int = 1
+
+class MyFrozenChildClass(MyFrozenClass): ...
+
+frozen = MyFrozenChildClass()
+frozen.x = 2  # error: [invalid-assignment]
 ```
 
 ### `match_args`

@@ -1400,6 +1400,26 @@ impl<'db> ClassLiteral<'db> {
                     .with_annotated_type(KnownClass::Type.to_instance(db));
                 signature_from_fields(vec![cls_parameter])
             }
+            (CodeGeneratorKind::DataclassLike, "__setattr__" | "__delattr__") => {
+                if !has_dataclass_param(DataclassParams::FROZEN) {
+                    return None;
+                }
+
+                let signature = Signature::new(
+                    Parameters::new([
+                        Parameter::positional_or_keyword(Name::new_static("self"))
+                            .with_annotated_type(Type::instance(
+                                db,
+                                self.apply_optional_specialization(db, specialization),
+                            )),
+                        Parameter::positional_or_keyword(Name::new_static("name")),
+                        Parameter::positional_or_keyword(Name::new_static("value")),
+                    ]),
+                    Some(Type::Never),
+                );
+
+                Some(CallableType::function_like(db, signature))
+            }
             (CodeGeneratorKind::DataclassLike, "__lt__" | "__le__" | "__gt__" | "__ge__") => {
                 if !has_dataclass_param(DataclassParams::ORDER) {
                     return None;
