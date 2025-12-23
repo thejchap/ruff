@@ -354,11 +354,20 @@ Ideally, we would emit a diagnostic in that case:
 
 ```py
 @dataclass(order=True)
-class AlreadyHasCustomDunderLt:
+class AlreadyHasCustomDunderComparisons:
     x: int
 
-    # TODO: Ideally, we would emit a diagnostic here
+    # error: [invalid-dataclass-override] "Cannot overwrite attribute `__lt__` in class `AlreadyHasCustomDunderComparisons`"
     def __lt__(self, other: object) -> bool:
+        return False
+    # error: [invalid-dataclass-override] "Cannot overwrite attribute `__le__` in class `AlreadyHasCustomDunderComparisons`"
+    def __le__(self, other: object) -> bool:
+        return False
+    # error: [invalid-dataclass-override] "Cannot overwrite attribute `__gt__` in class `AlreadyHasCustomDunderComparisons`"
+    def __gt__(self, other: object) -> bool:
+        return False
+    # error: [invalid-dataclass-override] "Cannot overwrite attribute `__ge__` in class `AlreadyHasCustomDunderComparisons`"
+    def __ge__(self, other: object) -> bool:
         return False
 ```
 
