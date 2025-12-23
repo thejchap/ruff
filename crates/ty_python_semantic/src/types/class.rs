@@ -3117,6 +3117,30 @@ impl<'db> ClassLiteral<'db> {
             let attr = result.ignore_conflicting_declarations();
             let symbol = table.symbol(symbol_id);
             let name = symbol.name();
+
+            // Check for overridden dunder methods on dataclasses with `order=True`
+            if let Some(Type::FunctionLiteral(literal)) = attr.place.ignore_possibly_undefined()
+                && matches!(name.as_str(), "__lt__" | "__le__" | "__gt__" | "__ge__")
+            {
+                if let Some(CodeGeneratorKind::DataclassLike(_)) =
+                    CodeGeneratorKind::from_class(db, self, None)
+                    && self.has_dataclass_param(db, field_policy, DataclassFlags::ORDER)
+                {
+                    if let Some(builder) = context.report_lint(
+                        &INVALID_DATACLASS_OVERRIDE,
+                        literal.node(db, context.file(), context.module()),
+                    ) {
+                        let mut diagnostic = builder.into_diagnostic(format_args!(
+                            "Cannot overwrite attribute `{}` in class `{}`",
+                            name,
+                            self.name(db)
+                        ));
+                        diagnostic.info(name);
+                    }
+                }
+            }
+
+            // Check for overridden dunder methods on dataclasses with `frozen=True`
             if let Some(Type::FunctionLiteral(literal)) = attr.place.ignore_possibly_undefined()
                 && matches!(name.as_str(), "__setattr__" | "__delattr__")
             {
