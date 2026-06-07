@@ -8,18 +8,19 @@ use crate::types::typed_dict::{
     TypedDictField, TypedDictFieldBuilder, TypedDictSchema, TypedDictType,
 };
 use crate::types::{
-    CallableType, ClassLiteral, ClassType, IntersectionBuilder, IntersectionType, KnownClass,
-    KnownInstanceType, LiteralValueTypeKind, Parameter, Parameters, Signature, SpecialFormType,
-    SubclassOfInner, SubclassOfType, Truthiness, Type, TypeContext, TypeVarBoundOrConstraints,
-    UnionBuilder, callable_pattern_type, definite_sequence_pattern_type,
-    exact_sequence_pattern_type, infer_expression_types, mapping_pattern_type,
-    sequence_pattern_type_builder, singleton_pattern_type, starred_sequence_pattern_type,
+    CallableType, ClassLiteral, ClassPatternSubpatternId, ClassPatternSubpatternTarget, ClassType,
+    IntersectionBuilder, IntersectionType, KnownClass, KnownInstanceType, LiteralValueTypeKind,
+    Parameter, Parameters, Signature, SpecialFormType, SubclassOfInner, SubclassOfType, Truthiness,
+    Type, TypeContext, TypeVarBoundOrConstraints, UnionBuilder, callable_pattern_type,
+    class_pattern_targets, definite_sequence_pattern_type, exact_sequence_pattern_type,
+    infer_expression_types, mapping_pattern_type, sequence_pattern_type_builder,
+    singleton_pattern_type, starred_sequence_pattern_type,
 };
 use ty_python_core::expression::Expression;
 use ty_python_core::place::{PlaceExpr, PlaceTable, ScopedPlaceId};
 use ty_python_core::predicate::{
-    CallableAndCallExpr, ClassPatternKind, PatternPredicate, PatternPredicateKind, Predicate,
-    PredicateNode, SequencePatternPredicateKind,
+    CallableAndCallExpr, ClassPatternKind, ClassPatternPredicateKind, PatternPredicate,
+    PatternPredicateKind, Predicate, PredicateNode, SequencePatternPredicateKind,
 };
 use ty_python_core::scope::ScopeId;
 use ty_python_core::{NarrowingEvaluator, place_table, semantic_index};
@@ -230,6 +231,19 @@ fn all_negative_narrowing_constraints_for_pattern<'db>(
 ) -> Option<NarrowingConstraints<'db>> {
     let module = parsed_module(db, pattern.file(db)).load(db);
     NarrowingConstraintsBuilder::new(db, &module, PredicateNode::Pattern(pattern), false).finish()
+}
+
+fn class_pattern_subpattern<'a, 'db>(
+    class_pattern: &'a ClassPatternPredicateKind<'db>,
+    subpattern: ClassPatternSubpatternId,
+) -> Option<&'a PatternPredicateKind<'db>> {
+    match subpattern {
+        ClassPatternSubpatternId::Positional(index) => class_pattern.positional_patterns.get(index),
+        ClassPatternSubpatternId::Keyword(index) => class_pattern
+            .keyword_patterns
+            .get(index)
+            .map(|keyword| &keyword.pattern),
+    }
 }
 
 /// Functions that can be used to narrow the type of a first argument using a "classinfo" second argument.
@@ -898,12 +912,9 @@ impl<'db, 'ast> NarrowingConstraintsBuilder<'db, 'ast> {
             PatternPredicateKind::Singleton(singleton) => {
                 self.evaluate_match_pattern_singleton(subject, *singleton, is_positive)
             }
-            PatternPredicateKind::Class(class_pattern) => self.evaluate_match_pattern_class(
-                subject,
-                class_pattern.class,
-                class_pattern.kind,
-                is_positive,
-            ),
+            PatternPredicateKind::Class(class_pattern) => {
+                self.evaluate_match_pattern_class(subject, class_pattern, is_positive)
+            }
             PatternPredicateKind::Mapping(kind) => {
                 self.evaluate_match_pattern_mapping(subject, *kind, is_positive)
             }
@@ -1971,11 +1982,10 @@ impl<'db, 'ast> NarrowingConstraintsBuilder<'db, 'ast> {
     fn evaluate_match_pattern_class(
         &mut self,
         subject: Expression<'db>,
-        cls: Expression<'db>,
-        kind: ClassPatternKind,
+        class_pattern: &ClassPatternPredicateKind<'db>,
         is_positive: bool,
     ) -> Option<NarrowingConstraints<'db>> {
-        if !kind.is_irrefutable() && !is_positive {
+        if !class_pattern.kind.is_irrefutable() && !is_positive {
             // A class pattern like `case Point(x=0, y=0)` is not irrefutable. In the positive case,
             // we can still narrow the type of the match subject to `Point`. But in the negative case,
             // we cannot exclude `Point` as a possibility.
@@ -1985,7 +1995,29 @@ impl<'db, 'ast> NarrowingConstraintsBuilder<'db, 'ast> {
         let subject = PlaceExpr::try_from_expr(subject.node_ref(self.db).node(self.module))?;
         let place = self.expect_place(&subject);
 
-        let class_type = infer_same_file_expression_type(self.db, cls, TypeContext::default());
+        let class_type =
+            infer_same_file_expression_type(self.db, class_pattern.class, TypeContext::default());
+
+        // Construct constraints based on positional + keyword sub-patterns
+        let sub_pattern_targets = class_pattern_targets(self.db, class_pattern, class_type);
+        for target in &sub_pattern_targets {
+            match target {
+                ClassPatternSubpatternTarget::Subject { subpattern } => {
+                    let Some(pattern) = class_pattern_subpattern(class_pattern, *subpattern) else {
+                        continue;
+                    };
+                    // TODO: Evaluate a single-subpattern predicate against the subject itself
+                    let _ = pattern;
+                }
+                ClassPatternSubpatternTarget::Attribute { name, subpattern } => {
+                    let Some(pattern) = class_pattern_subpattern(class_pattern, *subpattern) else {
+                        continue;
+                    };
+                    // TODO: Narrow subject type based on attribute type
+                    let _ = (name, pattern);
+                }
+            }
+        }
 
         let narrowed_type = match class_type {
             Type::ClassLiteral(class) => {
