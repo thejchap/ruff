@@ -898,9 +898,12 @@ impl<'db, 'ast> NarrowingConstraintsBuilder<'db, 'ast> {
             PatternPredicateKind::Singleton(singleton) => {
                 self.evaluate_match_pattern_singleton(subject, *singleton, is_positive)
             }
-            PatternPredicateKind::Class(cls, kind) => {
-                self.evaluate_match_pattern_class(subject, *cls, *kind, is_positive)
-            }
+            PatternPredicateKind::Class(class_pattern) => self.evaluate_match_pattern_class(
+                subject,
+                class_pattern.class,
+                class_pattern.kind,
+                is_positive,
+            ),
             PatternPredicateKind::Mapping(kind) => {
                 self.evaluate_match_pattern_mapping(subject, *kind, is_positive)
             }
@@ -2051,8 +2054,12 @@ impl<'db, 'ast> NarrowingConstraintsBuilder<'db, 'ast> {
             PatternPredicateKind::Singleton(singleton) => {
                 singleton_pattern_type(self.db, *singleton)
             }
-            PatternPredicateKind::Class(cls, _) => {
-                match infer_same_file_expression_type(self.db, *cls, TypeContext::default()) {
+            PatternPredicateKind::Class(class_pattern) => {
+                match infer_same_file_expression_type(
+                    self.db,
+                    class_pattern.class,
+                    TypeContext::default(),
+                ) {
                     Type::ClassLiteral(class) => {
                         Type::instance(self.db, class.top_materialization(self.db))
                     }

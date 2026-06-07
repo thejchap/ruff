@@ -181,9 +181,13 @@ pub(crate) fn definite_match_pattern_type<'db>(
                 Type::Never
             }
         }
-        PatternPredicateKind::Class(class_expr, kind) => {
-            if kind.is_irrefutable() {
-                match infer_same_file_expression_type(db, *class_expr, TypeContext::default()) {
+        PatternPredicateKind::Class(class_pattern) => {
+            if class_pattern.kind.is_irrefutable() {
+                match infer_same_file_expression_type(
+                    db,
+                    class_pattern.class,
+                    TypeContext::default(),
+                ) {
                     Type::ClassLiteral(class) => Type::instance(db, class.top_materialization(db)),
                     Type::SpecialForm(SpecialFormType::CollectionsAbcCallable) => {
                         callable_pattern_type(db)
