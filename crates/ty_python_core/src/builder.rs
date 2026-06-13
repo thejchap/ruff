@@ -1907,6 +1907,12 @@ impl<'db, 'ast> SemanticIndexBuilder<'db, 'ast> {
             }
             ast::Pattern::MatchClass(pattern) => {
                 let class = self.add_standalone_expression(&pattern.cls);
+
+                // TODO: A class pattern with only irrefutable subpatterns can still fail if
+                // extracting an attribute named by `__match_args__` or a keyword fails. We retain
+                // this existing approximation because treating all class patterns with arguments
+                // as refutable caused a large ecosystem change. Follow-up work should determine
+                // irrefutability by analyzing the class's attributes and `__match_args__`.
                 let kind = if pattern
                     .arguments
                     .patterns
