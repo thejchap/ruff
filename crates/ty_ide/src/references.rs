@@ -11,9 +11,10 @@
 //! an expensive search of all source files in the workspace.
 
 use crate::goto::{Definitions, GotoTarget};
+use crate::scan::scan_project_files;
 use crate::{Db, ReferenceKind, ReferenceTarget};
-use rayon::prelude::*;
 use ruff_db::files::File;
+use ruff_db::source::source_text;
 use ruff_python_ast::find_node::{CoveringNode, covering_node};
 use ruff_python_ast::token::Tokens;
 use ruff_python_ast::{
@@ -21,7 +22,6 @@ use ruff_python_ast::{
     visitor::source_order::{SourceOrderVisitor, TraversalSignal},
 };
 use ruff_text_size::Ranged;
-use ty_project::parallel::{ParallelIteratorExt, minimum_parallel_job_len};
 use ty_python_core::definition::{Definition, DefinitionKind, DefinitionState};
 use ty_python_core::scope::{FileScopeId, NodeWithScopeKind, ScopeKind};
 use ty_python_semantic::{
@@ -116,37 +116,26 @@ pub(crate) fn references(
     let is_parameter = parameter_owner_is_externally_visible(db, &target_definitions);
 
     if search_across_files && (is_parameter || is_externally_visible_symbol) {
-        let files = db.project().files(db);
-        let files: Vec<_> = files
-            .iter()
-            .copied()
-            .filter(|other| *other != file)
-            .collect();
-        let minimum_job_len = minimum_parallel_job_len(files.len(), MAX_MIN_FILES_PER_PARALLEL_JOB);
-        let other_references = files
-            .into_par_iter()
-            .with_min_len(minimum_job_len)
-            .map_with_db(db, |db, other_file| {
-                let source = ruff_db::source::source_text(db, other_file);
-                if !contains_identifier(&source, &target_text) {
+        let needle = target_text.as_ref();
+        let other_references =
+            scan_project_files(db, MAX_MIN_FILES_PER_PARALLEL_JOB, |db, other_file| {
+                if other_file == file || !contains_identifier(&source_text(db, other_file), needle)
+                {
                     return Vec::new();
                 }
 
                 if is_externally_visible_symbol {
-                    references_for_file(db, other_file, &target_definitions, &target_text, mode)
+                    references_for_file(db, other_file, &target_definitions, needle, mode)
                 } else {
                     references_for_keyword_arguments_in_file(
                         db,
                         other_file,
                         &target_definitions,
-                        &target_text,
+                        needle,
                         mode,
                     )
                 }
-            })
-            .flat_map_iter(|references| references)
-            .collect::<Vec<_>>();
-
+            });
         references.extend(other_references);
     }
 

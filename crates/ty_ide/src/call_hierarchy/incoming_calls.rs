@@ -1,10 +1,11 @@
 use crate::call_hierarchy::{CalleeLeaf, module_detail};
 use crate::goto::{Definitions, GotoTarget, find_goto_target};
 use crate::references::has_any_external_visible_definitions;
+use crate::scan::scan_project_files;
 use crate::{CallHierarchyItem, Db, SymbolKind};
-use rayon::prelude::*;
 use ruff_db::files::File;
 use ruff_db::parsed::{ParsedModuleRef, parsed_module};
+use ruff_db::source::source_text;
 use ruff_python_ast::helpers::is_dunder;
 use ruff_python_ast::name::Name;
 use ruff_python_ast::token::Tokens;
@@ -12,7 +13,6 @@ use ruff_python_ast::visitor::source_order::{SourceOrderVisitor, TraversalSignal
 use ruff_python_ast::{self as ast, AnyNodeRef};
 use ruff_text_size::{Ranged, TextLen, TextRange, TextSize};
 use rustc_hash::FxHashMap;
-use ty_project::parallel::{ParallelIteratorExt, minimum_parallel_job_len};
 use ty_python_core::scope::{NodeWithScopeKind, ScopeKind};
 use ty_python_semantic::types::ide_support::static_member_type_for_attribute;
 use ty_python_semantic::types::{PropertyAccessorRole, Type};
@@ -73,13 +73,6 @@ pub fn incoming_calls(db: &dyn Db, file: File, offset: TextSize) -> Vec<Incoming
     let mut raw = call_sites_for_file(db, file, &target_definitions, target_role, needle);
 
     if is_externally_visible {
-        let files = db.project().files(db);
-        let files: Vec<_> = files
-            .iter()
-            .copied()
-            .filter(|other| *other != file)
-            .collect();
-        let minimum_job_len = minimum_parallel_job_len(files.len(), MAX_MIN_FILES_PER_PARALLEL_JOB);
         // The byte-level text prefilter still pays off as a coarse gate:
         // files that don't contain the target name (or an import of it)
         // textually are skipped before any AST work. Files that route the
@@ -87,22 +80,19 @@ pub fn incoming_calls(db: &dyn Db, file: File, offset: TextSize) -> Vec<Incoming
         // pass the gate because they contain `foo` in the import line.
         // Dunder calls have no required textual spelling, so the filter
         // is disabled for them.
-        let other_sites = files
-            .into_par_iter()
-            .with_min_len(minimum_job_len)
-            .map_with_db(db, |db, other_file| {
-                let source = ruff_db::source::source_text(db, other_file);
+        let other_sites =
+            scan_project_files(db, MAX_MIN_FILES_PER_PARALLEL_JOB, |db, other_file| {
+                if other_file == file {
+                    return Vec::new();
+                }
                 if let Some(name) = needle
-                    && !contains_identifier(&source, name)
+                    && !contains_identifier(&source_text(db, other_file), name)
                 {
                     return Vec::new();
                 }
 
                 call_sites_for_file(db, other_file, &target_definitions, target_role, needle)
-            })
-            .flat_map_iter(|sites| sites)
-            .collect::<Vec<_>>();
-
+            });
         raw.extend(other_sites);
     }
 

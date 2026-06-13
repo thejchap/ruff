@@ -1,12 +1,10 @@
-use crate::goto::{Definitions, GotoTarget, find_goto_target};
+use crate::goto::find_goto_target;
+use crate::implementations::implementations;
 use crate::{Db, NavigationTargets, RangedValue};
-use ruff_db::files::{File, FileRange};
+use ruff_db::files::File;
 use ruff_db::parsed::parsed_module;
-use ruff_text_size::{Ranged, TextSize};
-use ty_python_semantic::{
-    SemanticModel, implementation_definitions_for_attribute, implementation_definitions_for_class,
-    implementation_definitions_for_class_reference, implementation_definitions_for_method,
-};
+use ruff_text_size::TextSize;
+use ty_python_semantic::SemanticModel;
 
 /// Navigate from an attribute access or method declaration to that member and known subclass overrides.
 ///
@@ -52,36 +50,7 @@ pub fn goto_implementation(
     let model = SemanticModel::new(db, file);
     let goto_target = find_goto_target(&model, &module, offset)?;
 
-    let implementations = match &goto_target {
-        GotoTarget::Expression(ruff_python_ast::ExprRef::Attribute(attribute))
-        | GotoTarget::Call {
-            callable: ruff_python_ast::ExprRef::Attribute(attribute),
-            ..
-        } => implementation_definitions_for_attribute(&model, attribute),
-        GotoTarget::Expression(ruff_python_ast::ExprRef::Name(name))
-        | GotoTarget::Call {
-            callable: ruff_python_ast::ExprRef::Name(name),
-            ..
-        } => implementation_definitions_for_class_reference(&model, name),
-        GotoTarget::FunctionDef(function) => {
-            implementation_definitions_for_method(&model, function)
-        }
-        GotoTarget::ClassDef(class) => implementation_definitions_for_class(&model, class),
-        _ => return None,
-    };
-
-    if implementations.is_empty() {
-        return None;
-    }
-
-    let implementation_targets = Definitions::new(implementations)
-        .map_stubs_for_implementation(model.db())?
-        .into_navigation_targets(model.db());
-
-    Some(RangedValue {
-        range: FileRange::new(file, goto_target.range()),
-        value: implementation_targets,
-    })
+    implementations(db, file, &goto_target)
 }
 
 #[cfg(test)]
@@ -475,6 +444,61 @@ mod tests {
           |         ------
           |
          ::: child.py:5:9
+          |
+        5 |     def method(self): ...
+          |         ------
+          |
+        ");
+    }
+
+    #[test]
+    fn implementation_dependency_subclass_override_is_not_included() {
+        let test = CursorTest::builder()
+            .with_site_packages()
+            .source(
+                "main.py",
+                r#"
+                from thirdparty import Base
+
+                def f(value: Base):
+                    value.me<CURSOR>thod()
+                "#,
+            )
+            .source(
+                "child.py",
+                r#"
+                from thirdparty import Base
+
+                class ProjectChild(Base):
+                    def method(self): ...
+                "#,
+            )
+            .site_packages(
+                "thirdparty/__init__.py",
+                r#"
+                class Base:
+                    def method(self): ...
+
+                class ThirdPartyChild(Base):
+                    def method(self): ...
+                "#,
+            )
+            .build();
+
+        assert_snapshot!(test.goto_implementation(), @"
+        info[goto-implementation]: Go to implementation
+         --> src/main.py:5:11
+          |
+        5 |     value.method()
+          |           ^^^^^^ Clicking here
+          |
+        info: Found 2 implementations
+         --> site-packages/thirdparty/__init__.py:3:9
+          |
+        3 |     def method(self): ...
+          |         ------
+          |
+         ::: src/child.py:5:9
           |
         5 |     def method(self): ...
           |         ------

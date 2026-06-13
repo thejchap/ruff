@@ -41,12 +41,15 @@ pub use ty_site_packages::{
     SitePackagesPaths, SysPrefixPathOrigin,
 };
 pub use types::ide_support::{
-    ImportAliasResolution, ResolvedDefinition, TypeHierarchyClass, contains_identifier,
-    definitions_for_attribute, definitions_for_bin_op, definitions_for_imported_symbol,
-    definitions_for_name, definitions_for_unary_op, implementation_definitions_for_attribute,
-    implementation_definitions_for_class, implementation_definitions_for_class_reference,
-    implementation_definitions_for_method, map_stub_definition, type_hierarchy_prepare,
-    type_hierarchy_subtypes, type_hierarchy_supertypes,
+    ImplementationRoot, ImportAliasResolution, ResolvedDefinition, TypeHierarchyClass,
+    contains_identifier, definitions_for_attribute, definitions_for_bin_op,
+    definitions_for_imported_symbol, definitions_for_name, definitions_for_unary_op,
+    implementation_class_definitions_for_file, implementation_member_definitions_for_file,
+    implementation_mro_member_definitions, implementation_root_definition,
+    implementation_root_for_class, implementation_root_for_method,
+    implementation_roots_for_attribute, implementation_roots_for_class_reference,
+    map_stub_definition, type_hierarchy_prepare, type_hierarchy_subtypes,
+    type_hierarchy_supertypes,
 };
 pub use types::{DisplaySettings, TypeQualifiers};
 
