@@ -90,9 +90,9 @@ pub(crate) enum ClassPatternSubpatternId {
 ///          ^
 ///          +-- targets the match subject itself
 /// ```
-pub(crate) fn class_pattern_targets<'a, 'db>(
+pub(crate) fn class_pattern_targets<'db>(
     db: &'db dyn Db,
-    class_pattern: &'a ClassPatternPredicateKind<'db>,
+    class_pattern: &ClassPatternPredicateKind<'db>,
     class_type: Type<'db>,
 ) -> Vec<ClassPatternSubpatternTarget> {
     class_pattern_targets_from_parts(
